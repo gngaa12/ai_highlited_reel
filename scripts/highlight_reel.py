@@ -1,0 +1,51 @@
+name: AI Highlight Reel
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Link to the long source video"
+        required: true
+      max_highlights:
+        description: "How many top moments to include"
+        required: false
+        default: "6"
+      post_mode:
+        description: "combined = one stitched reel, separate = one post per highlight"
+        required: false
+        default: "combined"
+
+jobs:
+  build-and-post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Run highlight reel generator
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+          MAX_HIGHLIGHTS: ${{ inputs.max_highlights }}
+          POST_MODE: ${{ inputs.post_mode }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+        run: python scripts/highlight_reel.py
+
+      - name: Upload highlight reel as artifact (backup / preview)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: highlight-reel
+          path: work/final_highlight_reel.mp4
+          if-no-files-found: ignore
