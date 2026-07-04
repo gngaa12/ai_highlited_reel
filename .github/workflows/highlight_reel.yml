@@ -14,6 +14,10 @@ on:
         description: "combined = one stitched reel, separate = one post per highlight"
         required: false
         default: "combined"
+      clip_seconds:
+        description: "Target length in seconds for each highlight (e.g. 35 for a 30-40s clip)"
+        required: false
+        default: "35"
 
 jobs:
   build-and-post:
@@ -38,6 +42,7 @@ jobs:
           VIDEO_URL: ${{ inputs.video_url }}
           MAX_HIGHLIGHTS: ${{ inputs.max_highlights }}
           POST_MODE: ${{ inputs.post_mode }}
+          CLIP_SECONDS: ${{ inputs.clip_seconds }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
         run: python scripts/highlight_reel.py
