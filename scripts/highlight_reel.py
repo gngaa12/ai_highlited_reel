@@ -66,7 +66,12 @@ def run(cmd):
 
 def download_video():
     os.makedirs(WORKDIR, exist_ok=True)
-    run(["yt-dlp", "-f", "mp4", "-o", ORIGINAL_VIDEO, VIDEO_URL])
+    cmd = ["yt-dlp", "-f", "mp4", "-o", ORIGINAL_VIDEO]
+    if os.path.exists("cookies.txt"):
+        print("Using cookies.txt for authenticated download (helps with YouTube bot-detection)")
+        cmd += ["--cookies", "cookies.txt"]
+    cmd.append(VIDEO_URL)
+    run(cmd)
 
 
 def extract_audio():
