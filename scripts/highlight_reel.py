@@ -37,6 +37,7 @@ from pydub import AudioSegment
 VIDEO_URL = os.environ["VIDEO_URL"]
 MAX_HIGHLIGHTS = int(os.environ.get("MAX_HIGHLIGHTS", "6"))
 POST_MODE = os.environ.get("POST_MODE", "combined")  # "combined" or "separate"
+CLIP_SECONDS = float(os.environ.get("CLIP_SECONDS", "35"))  # target length per highlight
 FB_PAGE_ID = os.environ["FB_PAGE_ID"]
 FB_PAGE_TOKEN = os.environ["FB_PAGE_ACCESS_TOKEN"]
 GRAPH_VERSION = "v19.0"
@@ -120,21 +121,65 @@ def pick_top_highlights(scored_segments):
     ranked = sorted(scored_segments, key=lambda s: s["total_score"], reverse=True)
     top = ranked[:MAX_HIGHLIGHTS]
 
-    print("\n=== Top scoring moments ===")
+    print("\n=== Top scoring moments (peak points, before expanding) ===")
     for s in top:
         print(f"[{s['start']:.1f}s-{s['end']:.1f}s] score={s['total_score']} "
               f"(energy={s['energy_score']}, keywords={s['keyword_score']}): {s['text']}")
 
-    # put back in chronological order so the reel flows naturally
     top.sort(key=lambda s: s["start"])
     return top
+
+
+def expand_and_merge_windows(highlights, video_duration, target_seconds):
+    """
+    Whisper segments are only a few seconds long (one sentence).
+    This expands each highlight into a real ~target_seconds-long window
+    centered on the exciting moment, then merges any windows that end up
+    overlapping so the same footage doesn't get used twice.
+    """
+    half = target_seconds / 2.0
+    windows = []
+    for h in highlights:
+        center = (h["start"] + h["end"]) / 2.0
+        start = max(0.0, center - half)
+        end = min(video_duration, center + half)
+        # if we hit the start/end of the video, extend the other side to
+        # still try to hit the target length where possible
+        actual_len = end - start
+        if actual_len < target_seconds:
+            if start == 0.0:
+                end = min(video_duration, target_seconds)
+            elif end == video_duration:
+                start = max(0.0, video_duration - target_seconds)
+        windows.append({
+            "start": start,
+            "end": end,
+            "text": h["text"],
+            "total_score": h["total_score"],
+        })
+
+    windows.sort(key=lambda w: w["start"])
+    merged = []
+    for w in windows:
+        if merged and w["start"] <= merged[-1]["end"] + 2.0:
+            merged[-1]["end"] = max(merged[-1]["end"], w["end"])
+            if w["text"] not in merged[-1]["text"]:
+                merged[-1]["text"] = merged[-1]["text"] + " " + w["text"]
+        else:
+            merged.append(dict(w))
+
+    print(f"\n=== Expanded to {len(merged)} window(s) of ~{target_seconds:.0f}s each ===")
+    for w in merged:
+        print(f"[{w['start']:.1f}s-{w['end']:.1f}s] ({w['end']-w['start']:.1f}s long): {w['text']}")
+
+    return merged
 
 
 def cut_and_stitch_clips(highlights, video_duration):
     clip_paths = []
     for i, h in enumerate(highlights):
-        start = max(0, h["start"] - PADDING_SECONDS)
-        end = min(video_duration, h["end"] + PADDING_SECONDS)
+        start = h["start"]
+        end = h["end"]
         clip_path = f"{WORKDIR}/clip_{i}.mp4"
         run([
             "ffmpeg", "-y", "-i", ORIGINAL_VIDEO,
@@ -245,8 +290,8 @@ def caption_individual_clip(clip_path, index):
 
 def post_highlights_separately(highlights, video_duration):
     for i, h in enumerate(highlights):
-        start = max(0, h["start"] - PADDING_SECONDS)
-        end = min(video_duration, h["end"] + PADDING_SECONDS)
+        start = h["start"]
+        end = h["end"]
         raw_clip_path = f"{WORKDIR}/clip_{i}.mp4"
 
         run([
@@ -327,6 +372,8 @@ def main():
     if not highlights:
         print("No highlights selected.", file=sys.stderr)
         sys.exit(1)
+
+    highlights = expand_and_merge_windows(highlights, video_duration, CLIP_SECONDS)
 
     if POST_MODE == "separate":
         post_highlights_separately(highlights, video_duration)
